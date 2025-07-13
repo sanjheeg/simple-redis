@@ -8,7 +8,15 @@ fn main() {
     for stream in listener.incoming() {
          match stream {
              Ok(mut stream) => {
-                stream.write_all(b"+PONG\r\n").unwrap();
+                let mut buf = [0; 512]
+                loop {
+                    read_count = stream.read(&mut buf)?;
+                    if (read_count == 0) {
+                        break;
+                    }
+                    stream.write_all(b"+PONG\r\n").unwrap();
+                }
+                
              }
              Err(e) => {
                 println!("error: {}", e);
