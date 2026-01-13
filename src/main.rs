@@ -45,9 +45,18 @@ fn evaluate_resp(mut cmd: &[u8], store: &Arc<Mutex<HashMap<String, String>>>) ->
                     map.insert(key, value);
                     "+OK\r\n".to_string()
                 }
-                //"GET" | "get" => {
-
-                //}
+                "GET" | "get" => {
+                    if args.len() < 2 {
+                        return "-ERR wrong number of arguments for 'get'\r\n".to_string();
+                    }
+                    
+                    let key = &args[1];
+                    let map = store.lock().unwrap();
+                    match map.get(key) {
+                        Some(v) => format!("${}\r\n{}\r\n", v.len(), v),
+                        None => "$-1\r\n".to_string(),
+                    }
+                }
                 _ => "-not_supported command\r\n".to_string(),
             }
         }
