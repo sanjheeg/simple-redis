@@ -15,7 +15,7 @@ impl RESPDataType {
 
 // evaluate what the arguments passed in to the server are
 // call appropriate functions based on RESP request type
-fn evaluate_resp(mut cmd: &[u8]) -> String {
+fn evaluate_resp(mut cmd: &[u8], store: &Arc<Mutex<HashMap<String, String>>>) -> String {
     let mut contentLen: u8 = 0;
     
     // array processing
@@ -29,8 +29,25 @@ fn evaluate_resp(mut cmd: &[u8]) -> String {
             let args: Vec<String> = evaluate_bulk_string(cmd, contentLen);
 
             match args[0].as_str() {
-                "PING" | "ping" => "+PONG\r\n".to_string(),
-                "ECHO" | "echo" => format!("${}\r\n{}\r\n", args[1].len(), args[1]),
+                "PING" | "ping" => {
+                    "+PONG\r\n".to_string()
+                }
+                "ECHO" | "echo" => {
+                    format!("${}\r\n{}\r\n", args[1].len(), args[1])
+                } 
+                "SET" | "set" => {
+                    if args.len() < 3 {
+                        return "-ERR wrong number of arguments for 'SET'\r\n".to_string();
+                    }
+                    let key = args[1].clone();
+                    let value = args[2].clone();
+                    let mut map = store.lock().unwrap();
+                    map.insert(key, value);
+                    "+OK\r\n".to_string()
+                }
+                //"GET" | "get" => {
+
+                //}
                 _ => "-not_supported command\r\n".to_string(),
             }
         }
@@ -60,11 +77,11 @@ fn evaluate_bulk_string(mut cmd: &[u8], mut len: u8) -> Vec<String> {
 // reads a 20 byte cmd from stream 
 // writes '+PONG\r\n' for every read 
 // keeps loop running til error or disconnect
-fn handle_stream(stream: TcpStream) {
+fn handle_stream(stream: TcpStream, store: Arc<Mutex<HashMap<String, String>>>) {
     let mut stream: TcpStream = stream;
     let mut cmd: [u8; 1024] = [0u8; 1024];
     while let Ok(n) = stream.read(&mut cmd) {
-        let val: String = evaluate_resp(&cmd);
+        let val: String = evaluate_resp(&cmd, &store);
         let _ = stream.write(val.as_bytes());
     }
 }
@@ -74,13 +91,15 @@ fn handle_stream(stream: TcpStream) {
 // Accepts incoming client connections and spawns a new thread per connection 
 fn main() {    
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
+    let store: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
 
     for stream in listener.incoming() {
+        let store_clone = Arc::clone(&store);
         thread::spawn(move || 
             match stream {
                 Ok(_stream) => {
                     println!("accepted a new connection");
-                    handle_stream(_stream);
+                    handle_stream(_stream, store_clone);
                 }
                 Err(e) => {
                     println!("error: {}", e);
