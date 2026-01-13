@@ -63,7 +63,6 @@ fn handle_stream(stream: TcpStream) {
     let mut stream: TcpStream = stream;
     let mut cmd: [u8; 1024] = [0u8; 1024];
     while let Ok(n) = stream.read(&mut cmd) {
-        eprintln!("{}", String::from_utf8_lossy(&cmd[..n]));
         let val: String = evaluate_resp(&cmd);
         let _ = stream.write(val.as_bytes());
     }
