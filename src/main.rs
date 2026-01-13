@@ -1,11 +1,10 @@
 #![allow(unused_imports)]
-use std::io::{Write, Read};
-use std::net::{TcpStream, TcpListener};
-use std::thread;
 use std::borrow::Cow;
-use std::io::Error;
-
-
+use std::collections::HashMap;
+use std::io::{Write, Read, Error};
+use std::net::{TcpStream, TcpListener};
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 struct RESPDataType;
 impl RESPDataType {
@@ -14,6 +13,8 @@ impl RESPDataType {
 }
 
 
+// evaluate what the arguments passed in to the server are
+// call appropriate functions based on RESP request type
 fn evaluate_resp(mut cmd: &[u8]) -> String {
     let mut contentLen: u8 = 0;
     
@@ -34,11 +35,11 @@ fn evaluate_resp(mut cmd: &[u8]) -> String {
             }
         }
         _ => "-not_supported data type\r\n".to_string(),
- 
     }
-    
 }
 
+// decode contents of a bulk string
+// return contents as an array of strings
 fn evaluate_bulk_string(mut cmd: &[u8], mut len: u8) -> Vec<String> {
     let mut args:Vec<String> = Vec::new();
 
