@@ -82,7 +82,7 @@ fn evaluate_resp(mut cmd: &[u8], store: &Store) -> String {
                     let mut map = store.lock().unwrap();
                     match map.get(key) {
                         Some((_v, Some(exp))) if Instant::now() >= *exp => {
-                            // expired value, delete and act as if missing
+                            // expired value found, delete and act as if missing
                             map.remove(key);
                             "$-1\r\n".to_string()
                         }
