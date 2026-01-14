@@ -13,6 +13,7 @@ impl RESPDataType {
     const BULK: u8 = b'$';
 }
 
+type Store = Arc<Mutex<HashMap<String, (String, Option<Instant>)>>>;
 
 // evaluate what the arguments passed in to the server are
 // call appropriate functions based on RESP request type
@@ -47,23 +48,30 @@ fn evaluate_resp(mut cmd: &[u8], store: &Store) -> String {
                     if args.len() == 3 {
                         // no expiration
                         let mut map = store.lock().unwrap();
-                        map.insert(key, value);
+                        map.insert(key, (value, None));
                         "+OK\r\n".to_string()
                     }
-                    else if args.len == 5 {
+                    else if args.len() == 5 {
                         // expiration
-                        if (args[3].to_ascii_uppercase() == "PX") {
-                            let ms: u64 = match args[4].parse()
+                        if args[3].to_ascii_uppercase() == "PX" {
+                            let ms: u64 = args[4].parse().unwrap();
                             let expire_time = Instant::now() + Duration::from_millis(ms);
                             let mut map = store.lock().unwrap();
                             map.insert(key, (value, Some(expire_time)));
                             "+OK\r\n".to_string()
+                        } 
+                        else if args[3].to_ascii_uppercase() == "EX" {
+                            let secs: u64 = args[4].parse().unwrap();
+                            let expire_time =  Instant::now() + Duration::from_secs(secs);
+                            return "+OK\r\n".to_string();
                         }
-                        else if (args[3].to_ascii_uppercase() == "EX") {
-
+                        else {
+                            "-ERR unsupported SET option\r\n".to_string()
                         }
                     }
-                    
+                    else {
+                        "-ERR wrong number of arguments for 'SET'\r\n".to_string()
+                    }
                 }
                 "GET" | "get" => {
                     if args.len() < 2 {
@@ -71,9 +79,9 @@ fn evaluate_resp(mut cmd: &[u8], store: &Store) -> String {
                     }
                     
                     let key = &args[1];
-                    let map = store.lock().unwrap();
+                    let mut map = store.lock().unwrap();
                     match map.get(key) {
-                        Some((v, Some(exp))) if Instant::now() >= *exp => {
+                        Some((_v, Some(exp))) if Instant::now() >= *exp => {
                             // expired value, delete and act as if missing
                             map.remove(key);
                             "$-1\r\n".to_string()
@@ -96,7 +104,7 @@ fn evaluate_bulk_string(mut cmd: &[u8], mut len: u8) -> Vec<String> {
     let mut args:Vec<String> = Vec::new();
 
     while len > 0 {
-        let mut curr_word_len: usize = (cmd[1] - b'0') as usize;
+        let curr_word_len: usize = (cmd[1] - b'0') as usize;
         let curr_word: Cow<'_,str> = String::from_utf8_lossy(&cmd[4..curr_word_len+4]);
         args.push(curr_word.into());
 
@@ -126,7 +134,7 @@ fn handle_stream(stream: TcpStream, store: Store) {
 // Accepts incoming client connections and spawns a new thread per connection 
 fn main() {    
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
-    let store: Arc<Mutex<HashMap<String, (String, Option<Instant>)>>> = Arc::new(Mutex::new(HashMap::new()));
+    let store: Store = Arc::new(Mutex::new(HashMap::new()));
 
     for stream in listener.incoming() {
         let store_clone = Arc::clone(&store);
