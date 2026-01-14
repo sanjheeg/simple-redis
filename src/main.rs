@@ -5,6 +5,7 @@ use std::io::{Write, Read, Error};
 use std::net::{TcpStream, TcpListener};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
 
 struct RESPDataType;
 impl RESPDataType {
@@ -15,7 +16,7 @@ impl RESPDataType {
 
 // evaluate what the arguments passed in to the server are
 // call appropriate functions based on RESP request type
-fn evaluate_resp(mut cmd: &[u8], store: &Arc<Mutex<HashMap<String, String>>>) -> String {
+fn evaluate_resp(mut cmd: &[u8], store: &Store) -> String {
     let mut contentLen: u8 = 0;
     
     // array processing
@@ -39,11 +40,30 @@ fn evaluate_resp(mut cmd: &[u8], store: &Arc<Mutex<HashMap<String, String>>>) ->
                     if args.len() < 3 {
                         return "-ERR wrong number of arguments for 'SET'\r\n".to_string();
                     }
+
                     let key = args[1].clone();
                     let value = args[2].clone();
-                    let mut map = store.lock().unwrap();
-                    map.insert(key, value);
-                    "+OK\r\n".to_string()
+
+                    if args.len() == 3 {
+                        // no expiration
+                        let mut map = store.lock().unwrap();
+                        map.insert(key, value);
+                        "+OK\r\n".to_string()
+                    }
+                    else if args.len == 5 {
+                        // expiration
+                        if (args[3].to_ascii_uppercase() == "PX") {
+                            let ms: u64 = match args[4].parse()
+                            let expire_time = Instant::now() + Duration::from_millis(ms);
+                            let mut map = store.lock().unwrap();
+                            map.insert(key, (value, Some(expire_time)));
+                            "+OK\r\n".to_string()
+                        }
+                        else if (args[3].to_ascii_uppercase() == "EX") {
+
+                        }
+                    }
+                    
                 }
                 "GET" | "get" => {
                     if args.len() < 2 {
@@ -53,7 +73,13 @@ fn evaluate_resp(mut cmd: &[u8], store: &Arc<Mutex<HashMap<String, String>>>) ->
                     let key = &args[1];
                     let map = store.lock().unwrap();
                     match map.get(key) {
-                        Some(v) => format!("${}\r\n{}\r\n", v.len(), v),
+                        Some((v, Some(exp))) if Instant::now() >= *exp => {
+                            // expired value, delete and act as if missing
+                            map.remove(key);
+                            "$-1\r\n".to_string()
+                        }
+                        // if not expired 
+                        Some((v, _)) => format!("${}\r\n{}\r\n", v.len(), v),
                         None => "$-1\r\n".to_string(),
                     }
                 }
@@ -86,7 +112,7 @@ fn evaluate_bulk_string(mut cmd: &[u8], mut len: u8) -> Vec<String> {
 // reads a 20 byte cmd from stream 
 // writes '+PONG\r\n' for every read 
 // keeps loop running til error or disconnect
-fn handle_stream(stream: TcpStream, store: Arc<Mutex<HashMap<String, String>>>) {
+fn handle_stream(stream: TcpStream, store: Store) {
     let mut stream: TcpStream = stream;
     let mut cmd: [u8; 1024] = [0u8; 1024];
     while let Ok(n) = stream.read(&mut cmd) {
@@ -100,7 +126,7 @@ fn handle_stream(stream: TcpStream, store: Arc<Mutex<HashMap<String, String>>>) 
 // Accepts incoming client connections and spawns a new thread per connection 
 fn main() {    
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
-    let store: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
+    let store: Arc<Mutex<HashMap<String, (String, Option<Instant>)>>> = Arc::new(Mutex::new(HashMap::new()));
 
     for stream in listener.incoming() {
         let store_clone = Arc::clone(&store);
